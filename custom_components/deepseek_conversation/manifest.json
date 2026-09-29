@@ -1,0 +1,14 @@
+{
+  "domain": "deepseek_conversation",
+  "name": "DeepSeek Conversation",
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "codeowners": ["@krusknall"],
+  "config_flow": true,
+  "dependencies": ["automation", "conversation", "llm"],
+  "documentation": "https://github.com/krusknall/ha-deepseek-conversation",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/krusknall/ha-deepseek-conversation/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

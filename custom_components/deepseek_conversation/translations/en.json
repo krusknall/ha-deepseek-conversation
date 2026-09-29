@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to DeepSeek",
+        "data": {
+          "api_key": "API key",
+          "base_url": "API base URL"
+        },
+        "data_description": {
+          "api_key": "Create a key at platform.deepseek.com.",
+          "base_url": "Change only if you use a DeepSeek-compatible proxy."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid API key",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This API key is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "chat_model": "Model",
+          "llm_hass_api": "Control Home Assistant",
+          "prompt": "Instructions",
+          "max_tokens": "Maximum tokens per response",
+          "temperature": "Temperature"
+        },
+        "data_description": {
+          "chat_model": "deepseek-chat is fastest and handles device control best.",
+          "llm_hass_api": "Assist controls exposed devices. Automation builder lets the assistant create automations.",
+          "prompt": "Instructions for how the assistant should respond. Supports templates.",
+          "temperature": "Lower values give more predictable answers."
+        }
+      }
+    }
+  }
+}
