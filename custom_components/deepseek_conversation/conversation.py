@@ -26,6 +26,7 @@ from .const import (
     LOGGER,
     MAX_TOOL_ITERATIONS,
 )
+from .history import DATA_HISTORY, tool_result_data
 
 # JSON schema keywords the DeepSeek function-calling API does not accept at
 # the top level of a tool's parameters.
@@ -93,7 +94,7 @@ def _convert_chat_log(chat_log: conversation.ChatLog) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "tool_call_id": content.tool_call_id,
-                    "content": json_dumps(content.tool_result),
+                    "content": json_dumps(tool_result_data(content)),
                 }
             )
 
@@ -222,7 +223,12 @@ class DeepSeekConversationEntity(
         except conversation.ConverseError as err:
             return err.as_conversation_result()
 
-        await self._async_handle_chat_log(chat_log)
+        history = self.hass.data[DATA_HISTORY]
+        history.async_restore(chat_log, self.entity_id)
+        try:
+            await self._async_handle_chat_log(chat_log)
+        finally:
+            history.async_record(user_input, chat_log)
 
         return conversation.async_get_result_from_chat_log(user_input, chat_log)
 

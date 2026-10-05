@@ -6,6 +6,7 @@ A conversation agent for [Home Assistant](https://www.home-assistant.io) powered
 
 - **Device control** through Home Assistant's built-in Assist API, limited to the entities you expose.
 - **Automation builder**: describe an automation and the assistant looks up your entities, writes it, validates it and adds it to `automations.yaml`.
+- **Chat page and dashboard card** with saved history, formatted answers and a view of what the assistant did.
 - **Streaming responses** so voice replies start playing sooner.
 - **Reasoning models** such as `deepseek-reasoner`, including tool calls.
 - **No extra Python dependencies**, so it cannot conflict with packages bundled with Home Assistant.
@@ -45,6 +46,28 @@ Open the integration and select **Configure**.
 | Instructions | The system prompt. Supports templates. |
 | Maximum tokens per response | Raise this if answers are cut off. |
 | Temperature | Lower values give more predictable answers. |
+
+## Chat
+
+The integration adds a **DeepSeek** page to the sidebar, also available in the Home Assistant mobile app:
+
+- Answers are formatted, so lists, tables and automation YAML are easy to read.
+- Device actions and automation lookups appear as small entries above the answer; tap one to see what was sent and returned. Reasoning from `deepseek-reasoner` can be expanded the same way.
+- Chats are saved and listed under the history button. Reopening one continues the conversation with its earlier messages, also after a restart. Conversations from voice satellites are saved too and labeled with the device name.
+- Each user sees only their own chats and those from voice satellites.
+
+The chat uses an Assist pipeline that has DeepSeek as its conversation agent: the preferred pipeline if it uses DeepSeek, otherwise the first one that does.
+
+To chat from a dashboard, add the **DeepSeek chat** card:
+
+```yaml
+type: custom:deepseek-chat-card
+title: DeepSeek       # optional
+height: 480px         # optional
+pipeline_id: 01J...   # optional, an Assist pipeline that uses DeepSeek
+```
+
+The last 200 conversations are kept, in `.storage/deepseek_conversation.history`. Commands that Home Assistant handles itself, when **Prefer handling commands locally** is on for the pipeline, never reach DeepSeek and are not saved.
 
 ## Automation builder
 
