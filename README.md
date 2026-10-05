@@ -57,7 +57,9 @@ When **Automation builder** is enabled, the assistant can:
 Every automation is checked before it is saved:
 
 - It must pass Home Assistant's own automation validation.
-- It may only reference entities exposed to the assistant.
+- Its actions may only control entities exposed to the assistant, targeted by `entity_id`. Area, device, floor and label targets, `entity_id: all` and actions without an exposed target are refused (notifications excepted).
+- Templates are refused in actions, except in the data of `notify`, `persistent_notification` and `tts` actions.
+- YAML tags such as `!include`, `!secret` and `!env_var` are refused.
 - It is written to `automations.yaml` the same way the automation editor saves it, then loaded immediately.
 
 A notification appears whenever an automation is created. Automations can be reviewed, edited or deleted as usual under **Settings → Automations & scenes**.

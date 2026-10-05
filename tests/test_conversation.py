@@ -20,7 +20,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.deepseek_conversation.client import DeepSeekError
-from custom_components.deepseek_conversation.const import AUTOMATION_API_ID
+from custom_components.deepseek_conversation.const import (
+    AUTOMATION_API_ID,
+    MAX_TOOL_ITERATIONS,
+)
 
 from .conftest import ScriptedStream, text_response, tool_response
 
@@ -140,6 +143,7 @@ async def automation_setup(
 
     hass.states.async_set("light.porch", "off", {"friendly_name": "Porch light"})
     hass.states.async_set("lock.front_door", "locked", {"friendly_name": "Front door"})
+    hass.states.async_set("script.unlock_door", "off")
     async_expose_entity(hass, "conversation", "light.porch", True)
     async_expose_entity(hass, "conversation", "lock.front_door", False)
 
@@ -218,6 +222,34 @@ async def test_create_automation(
             "Invalid",
         ),
         ("triggers: []\nactions: []\n", "alias"),
+        (
+            PORCH_AUTOMATION.replace("entity_id: light.porch", "area_id: hall"),
+            "area_id",
+        ),
+        (PORCH_AUTOMATION.replace("light.porch", "all"), "not all"),
+        (
+            PORCH_AUTOMATION.replace("light.porch", "\"{{ 'lock.front' ~ '_door' }}\""),
+            "Templates",
+        ),
+        (PORCH_AUTOMATION.replace("light.porch", "light.porhc"), "Unknown entity"),
+        (
+            PORCH_AUTOMATION.replace("light.turn_on", "homeassistant.restart"),
+            "must target",
+        ),
+        (
+            PORCH_AUTOMATION.replace("light.turn_on", "script.unlock_door").replace(
+                "    target:\n      entity_id: light.porch\n", ""
+            ),
+            "script.unlock_door is not exposed",
+        ),
+        (
+            PORCH_AUTOMATION.replace("light.turn_on", "scene.apply").replace(
+                "    target:\n      entity_id: light.porch\n",
+                "    data:\n      entities:\n        lock.front_door: unlocked\n",
+            ),
+            "lock.front_door is not exposed",
+        ),
+        (PORCH_AUTOMATION + "description: !env_var HOME\n", "parse YAML"),
     ],
 )
 async def test_create_automation_rejected(
@@ -245,3 +277,57 @@ async def test_create_automation_rejected(
     tool_result = json.loads(mock_stream.payloads[1]["messages"][-1]["content"])
     assert error_fragment in tool_result["error_text"]
     assert yaml_util.load_yaml(str(tmp_path / "automations.yaml")) == []
+
+
+async def test_create_automation_with_notification_template(
+    hass: HomeAssistant,
+    tmp_path: Path,
+    automation_setup: MockConfigEntry,
+    mock_stream: ScriptedStream,
+) -> None:
+    """Templates are allowed in notification messages."""
+    automation = PORCH_AUTOMATION + (
+        "  - action: persistent_notification.create\n"
+        "    data:\n"
+        "      message: \"Porch is {{ states('light.porch') }}\"\n"
+    )
+    mock_stream.responses.extend(
+        [
+            lambda p: tool_response(
+                "call_1",
+                _find_tool(p, "create_automation"),
+                json.dumps({"yaml": automation}),
+            ),
+            text_response("Done."),
+        ]
+    )
+
+    await _converse(hass, "Make an automation")
+
+    tool_result = json.loads(mock_stream.payloads[1]["messages"][-1]["content"])
+    assert tool_result["success"] is True
+
+
+async def test_tool_loop_limit(
+    hass: HomeAssistant, setup_integration: MockConfigEntry, mock_stream: ScriptedStream
+) -> None:
+    """A model that never stops calling tools ends with an error."""
+    assert await async_setup_component(hass, "intent", {})
+    hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen"})
+    async_expose_entity(hass, "conversation", "light.kitchen", True)
+    async_mock_service(hass, "light", "turn_on")
+
+    mock_stream.responses.extend(
+        lambda payload, i=i: tool_response(
+            f"call_{i}",
+            _find_tool(payload, "HassTurnOn"),
+            json.dumps({"name": "Kitchen"}),
+        )
+        for i in range(MAX_TOOL_ITERATIONS)
+    )
+
+    result = await _converse(hass, "Turn on the kitchen light forever")
+
+    assert result.response.response_type is conversation.intent.IntentResponseType.ERROR
+    assert "still calling tools" in result.response.speech["plain"]["speech"]
+    assert len(mock_stream.payloads) == MAX_TOOL_ITERATIONS

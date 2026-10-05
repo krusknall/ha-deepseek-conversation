@@ -26,6 +26,7 @@ from homeassistant.util import yaml as yaml_util
 from homeassistant.util.file import write_utf8_file_atomic
 from homeassistant.util.json import JsonObjectType
 import voluptuous as vol
+import yaml
 
 from .const import AUTOMATION_API_ID, AUTOMATION_API_NAME
 
@@ -43,6 +44,29 @@ ORDERED_KEYS = (
     "action",
 )
 
+SERVICE_KEYS = ("action", "service", "service_template")
+# Targets that expand to entities the exposure check cannot see.
+INDIRECT_TARGET_KEYS = ("area_id", "device_id", "floor_id", "label_id")
+# Parts of an action sequence that only read state.
+READ_ONLY_KEYS = (
+    "condition",
+    "conditions",
+    "if",
+    "while",
+    "until",
+    "wait_template",
+    "wait_for_trigger",
+    "value_template",
+)
+# Services that need no entity target and may use templates in their data.
+NOTIFY_DOMAINS = ("notify", "persistent_notification")
+TEMPLATE_DATA_DOMAINS = (*NOTIFY_DOMAINS, "tts")
+GENERIC_SERVICES = (
+    "homeassistant.turn_on",
+    "homeassistant.turn_off",
+    "homeassistant.toggle",
+)
+
 API_PROMPT = (
     "You can create Home Assistant automations.\n"
     "1. Call find_entities to look up the exact entity IDs you need. "
@@ -51,7 +75,10 @@ API_PROMPT = (
     "`triggers`, optional `conditions` and `actions`.\n"
     "3. Briefly describe the automation to the user and ask for confirmation "
     "before calling create_automation.\n"
-    "4. If creation fails, fix the YAML based on the error and try again."
+    "4. If creation fails, fix the YAML based on the error and try again.\n"
+    "Actions may only control exposed entities, targeted by `entity_id`. "
+    "Do not target areas, devices, floors or labels, and only use templates "
+    "in the data of notify and tts actions."
 )
 
 _write_lock = asyncio.Lock()
@@ -188,11 +215,8 @@ class CreateAutomationTool(llm.Tool):
         args = self.parameters(tool_input.tool_args)
         config = _parse_automation(args["yaml"])
 
-        if unexposed := _unexposed_entities(hass, llm_context.assistant, config):
-            raise HomeAssistantError(
-                "The automation references entities that are not exposed to "
-                f"the assistant: {', '.join(sorted(unexposed))}"
-            )
+        if problems := _action_problems(hass, llm_context.assistant, config):
+            raise HomeAssistantError(" ".join(sorted(problems)))
 
         automation_id = uuid.uuid4().hex
         try:
@@ -227,9 +251,11 @@ class CreateAutomationTool(llm.Tool):
 
 def _parse_automation(text: str) -> dict[str, Any]:
     """Parse the YAML provided by the model."""
+    # Plain safe_load: Home Assistant's own loader would resolve tags such as
+    # !include and !env_var and leak local files into the automation.
     try:
-        parsed = yaml_util.parse_yaml(text)
-    except HomeAssistantError as err:
+        parsed = yaml.safe_load(text)
+    except yaml.YAMLError as err:
         raise HomeAssistantError(f"Could not parse YAML: {err}") from err
 
     if isinstance(parsed, list) and len(parsed) == 1:
@@ -244,27 +270,103 @@ def _parse_automation(text: str) -> dict[str, Any]:
     return config
 
 
-def _unexposed_entities(hass: HomeAssistant, assistant: str, config: Any) -> set[str]:
-    """Return referenced entity IDs that exist but are not exposed."""
-    found: set[str] = set()
+def _is_template(value: str) -> bool:
+    return "{{" in value or "{%" in value
 
-    def walk(value: Any) -> None:
-        if isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
+
+def _strings(value: Any) -> list[str]:
+    """Return every string in a config, including dictionary keys."""
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in (*_strings(k), *_strings(v))]
+    if isinstance(value, list):
+        return [s for item in value for s in _strings(item)]
+    return [value] if isinstance(value, str) else []
+
+
+def _action_problems(hass: HomeAssistant, assistant: str, config: Any) -> set[str]:
+    """Return reasons the automation's actions may not be created.
+
+    Triggers and conditions only read state, so only actions are checked.
+    """
+    # ponytail: static check; templates are refused rather than evaluated, so
+    # templated targets need a smarter check if they are ever wanted.
+    domains = {state.domain for state in hass.states.async_all()}
+    problems: set[str] = set()
+    entities: set[str] = set()
+
+    def entity_ids(value: Any) -> set[str]:
+        return {
+            s
+            for s in _strings(value)
+            if valid_entity_id(s) and s.partition(".")[0] in domains
+        }
+
+    def check_call(step: dict[str, Any]) -> None:
+        service = step.get("action", step.get("service"))
+        if (
+            "service_template" in step
+            or not isinstance(service, str)
+            or _is_template(service)
+        ):
+            problems.add("Action names must be written out, not templated.")
+            return
+        domain = service.partition(".")[0]
+        if domain in NOTIFY_DOMAINS:
+            return
+        targets = entity_ids({k: v for k, v in step.items() if k not in SERVICE_KEYS})
+        if hass.states.get(service):  # A script called as an action.
+            targets.add(service)
+            entities.add(service)
+        if not targets or (
+            service not in GENERIC_SERVICES
+            and all(e.partition(".")[0] != domain for e in targets)
+        ):
+            problems.add(
+                f"{service} must target exposed {domain} entities by entity_id."
+            )
+
+    def walk(value: Any, allow_templates: bool = False) -> None:
+        if isinstance(value, list):
             for item in value:
-                walk(item)
-        elif isinstance(value, str) and valid_entity_id(value):
-            found.add(value)
+                walk(item, allow_templates)
+            return
+        if isinstance(value, str):
+            if _is_template(value) and not allow_templates:
+                problems.add(f"Templates are not allowed here: {value}")
+            entities.update(entity_ids(value))
+            return
+        if not isinstance(value, dict):
+            return
 
-    walk(config)
-    return {
-        entity_id
-        for entity_id in found
-        if hass.states.get(entity_id) is not None
-        and not async_should_expose(hass, assistant, entity_id)
-    }
+        service = next((value[k] for k in SERVICE_KEYS if k in value), None)
+        if service is not None:
+            check_call(value)
+        templated_data = (
+            isinstance(service, str)
+            and service.partition(".")[0] in TEMPLATE_DATA_DOMAINS
+        )
+        for key, item in value.items():
+            if key in READ_ONLY_KEYS or key in SERVICE_KEYS:
+                continue
+            if key in INDIRECT_TARGET_KEYS:
+                problems.add(f"Target entities by entity_id, not by {key}.")
+                continue
+            walk(key)  # Keys can be entity IDs, as in scene.apply.
+            if str(key).endswith("entity_id"):
+                if any(i in ("all", "none") for i in _strings(item)):
+                    problems.add("Target specific entities, not all of them.")
+                walk(item)
+            else:
+                walk(item, allow_templates or (key == "data" and templated_data))
+
+    walk(config.get("actions", config.get("action")))
+
+    for entity_id in sorted(entities):
+        if hass.states.get(entity_id) is None:
+            problems.add(f"Unknown entity {entity_id}; use find_entities.")
+        elif not async_should_expose(hass, assistant, entity_id):
+            problems.add(f"{entity_id} is not exposed to the assistant.")
+    return problems
 
 
 def _append_automation(path: str, automation: dict[str, Any]) -> None:

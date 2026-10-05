@@ -260,3 +260,8 @@ class DeepSeekConversationEntity(
 
             if not chat_log.unresponded_tool_results:
                 break
+        else:
+            raise HomeAssistantError(
+                f"DeepSeek was still calling tools after {MAX_TOOL_ITERATIONS} "
+                "rounds; stopped to avoid a loop."
+            )
