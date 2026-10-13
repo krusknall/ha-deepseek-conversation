@@ -22,6 +22,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.deepseek_conversation.client import DeepSeekError
 from custom_components.deepseek_conversation.const import (
     AUTOMATION_API_ID,
+    CONF_REASONING,
     MAX_TOOL_ITERATIONS,
 )
 
@@ -51,7 +52,9 @@ async def test_text_response(
 
     assert result.response.speech["plain"]["speech"] == "Hello from DeepSeek!"
     payload = mock_stream.payloads[0]
-    assert payload["model"] == "deepseek-chat"
+    assert payload["model"] == "deepseek-flash"
+    assert payload["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in payload
     assert isinstance(payload["max_tokens"], int)
     assert payload["messages"][0]["role"] == "system"
     assert payload["messages"][-1] == {"role": "user", "content": "Hi"}
@@ -331,3 +334,45 @@ async def test_tool_loop_limit(
     assert result.response.response_type is conversation.intent.IntentResponseType.ERROR
     assert "still calling tools" in result.response.speech["plain"]["speech"]
     assert len(mock_stream.payloads) == MAX_TOOL_ITERATIONS
+
+
+async def test_reasoning_enabled(
+    hass: HomeAssistant, setup_integration: MockConfigEntry, mock_stream: ScriptedStream
+) -> None:
+    """The reasoning option turns on thinking mode with that effort."""
+    hass.config_entries.async_update_entry(
+        setup_integration,
+        options={**setup_integration.options, CONF_REASONING: "high"},
+    )
+    await hass.async_block_till_done()
+    mock_stream.responses.append(text_response("Hi"))
+
+    await _converse(hass, "Hi")
+
+    payload = mock_stream.payloads[0]
+    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["reasoning_effort"] == "high"
+
+
+async def test_reasoning_from_earlier_turns_sent_back(
+    hass: HomeAssistant, setup_integration: MockConfigEntry, mock_stream: ScriptedStream
+) -> None:
+    """DeepSeek rejects tool requests that drop reasoning from earlier turns."""
+    first = [
+        {"choices": [{"delta": {"role": "assistant", "reasoning_content": "Hmm."}}]},
+        *text_response("Hello!"),
+    ]
+    mock_stream.responses.extend([first, text_response("Fine.")])
+
+    result = await _converse(hass, "Hi")
+    await conversation.async_converse(
+        hass,
+        "How are you?",
+        result.conversation_id,
+        Context(),
+        agent_id=AGENT_ID,
+    )
+
+    earlier = mock_stream.payloads[1]["messages"][-2]
+    assert earlier["content"] == "Hello!"
+    assert earlier["reasoning_content"] == "Hmm."

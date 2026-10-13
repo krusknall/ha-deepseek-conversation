@@ -1,7 +1,9 @@
 name: Validate
 
 on:
+  # Pull requests are tested by pull_request; push covers merges to main.
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "0 4 * * 1"

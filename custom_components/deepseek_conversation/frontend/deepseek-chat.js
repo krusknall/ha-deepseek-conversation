@@ -341,8 +341,7 @@ class DeepSeekChat extends HTMLElement {
           }
           this._renderMessage(current);
         } else if (role === "tool_result") {
-          // Home Assistant 2026.10 sends `result`, 2026.9 sends `tool_result`.
-          this._results[delta.tool_call_id] = delta.result ? delta.result.data : delta.tool_result;
+          this._results[delta.tool_call_id] = delta.result.data;
           const owner = this._messages.find((m) =>
             m.tool_calls?.some((call) => call.id === delta.tool_call_id)
           );
