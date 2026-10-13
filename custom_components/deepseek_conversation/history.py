@@ -24,14 +24,6 @@ MAX_TOOL_RESULT_CHARS = 2000
 SUMMARY_KEYS = ("id", "title", "source", "created", "updated")
 
 
-def tool_result_data(content: conversation.ToolResultContent) -> Any:
-    """Return a tool result's data on every supported Home Assistant version."""
-    # 2026.10 wraps results in llm.ToolResult; 2026.9 stores the data directly.
-    if (result := getattr(content, "result", None)) is not None:
-        return result.data
-    return content.tool_result
-
-
 class ChatHistory:
     """Conversations handled by DeepSeek, stored per conversation ID."""
 
@@ -60,7 +52,8 @@ class ChatHistory:
         ):
             return
 
-        # Only text is restored; old tool calls are not needed as context.
+        # Old tool calls are not needed as context. Reasoning is, because
+        # DeepSeek rejects requests with tools that leave it out.
         earlier: list[conversation.Content] = []
         for message in stored["messages"]:
             if message["role"] == "user":
@@ -68,7 +61,9 @@ class ChatHistory:
             elif message["role"] == "assistant" and message.get("content"):
                 earlier.append(
                     conversation.AssistantContent(
-                        agent_id=agent_id, content=message["content"]
+                        agent_id=agent_id,
+                        content=message["content"],
+                        thinking_content=message.get("thinking_content") or None,
                     )
                 )
         chat_log.content[-1:-1] = earlier
@@ -148,7 +143,7 @@ def _serialize(content: conversation.Content) -> dict[str, Any] | None:
             ],
         }
     if isinstance(content, conversation.ToolResultContent):
-        result = tool_result_data(content)
+        result = content.result.data
         if len(text := json_dumps(result)) > MAX_TOOL_RESULT_CHARS:
             result = {"truncated": text[:MAX_TOOL_RESULT_CHARS]}
         return {

@@ -31,7 +31,7 @@ async def auto_enable_custom_integrations(
 @pytest.fixture
 def mock_models() -> Generator[Any]:
     """Mock the model listing used to validate credentials."""
-    with patch(f"{CLIENT}.async_list_models", return_value=["deepseek-chat"]) as mock:
+    with patch(f"{CLIENT}.async_list_models", return_value=["deepseek-flash"]) as mock:
         yield mock
 
 

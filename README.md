@@ -8,12 +8,12 @@ A conversation agent for [Home Assistant](https://www.home-assistant.io) powered
 - **Automation builder**: describe an automation and the assistant looks up your entities, writes it, validates it and adds it to `automations.yaml`.
 - **Chat page and dashboard card** with saved history, formatted answers and a view of what the assistant did.
 - **Streaming responses** so voice replies start playing sooner.
-- **Reasoning models** such as `deepseek-reasoner`, including tool calls.
+- **Reasoning** at low, high or max effort when you want the model to think first, including during tool calls.
 - **No extra Python dependencies**, so it cannot conflict with packages bundled with Home Assistant.
 
 ## Requirements
 
-- Home Assistant 2026.9 or newer
+- Home Assistant 2026.10 or newer
 - A DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com)
 
 ## Installation
@@ -41,18 +41,19 @@ Open the integration and select **Configure**.
 
 | Option | Description |
 | --- | --- |
-| Model | `deepseek-chat` is the fastest and most reliable for device control. |
+| Model | `deepseek-flash` is fast and handles device control well. `deepseek-v4-pro` is stronger and slower. |
+| Reasoning | Lets the model think before answering. **Off** is fastest and best for voice; use **Low** or **High** for automations and harder questions. Reasoning counts toward the maximum tokens. |
 | Control Home Assistant | Select **Assist** for device control and **Automation builder** to allow creating automations. Both can be enabled. |
 | Instructions | The system prompt. Supports templates. |
 | Maximum tokens per response | Raise this if answers are cut off. |
-| Temperature | Lower values give more predictable answers. |
+| Temperature | Lower values give more predictable answers. Ignored while reasoning is on. |
 
 ## Chat
 
 The integration adds a **DeepSeek** page to the sidebar, also available in the Home Assistant mobile app:
 
 - Answers are formatted, so lists, tables and automation YAML are easy to read.
-- Device actions and automation lookups appear as small entries above the answer; tap one to see what was sent and returned. Reasoning from `deepseek-reasoner` can be expanded the same way.
+- Device actions and automation lookups appear as small entries above the answer; tap one to see what was sent and returned. When reasoning is on, the model's thinking can be expanded the same way.
 - Chats are saved and listed under the history button. Reopening one continues the conversation with its earlier messages, also after a restart. Conversations from voice satellites are saved too and labeled with the device name.
 - Each user sees only their own chats and those from voice satellites.
 

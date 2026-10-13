@@ -24,11 +24,10 @@ from homeassistant.helpers import (
 )
 from homeassistant.util import yaml as yaml_util
 from homeassistant.util.file import write_utf8_file_atomic
-from homeassistant.util.json import JsonObjectType
 import voluptuous as vol
 import yaml
 
-from .const import AUTOMATION_API_ID, AUTOMATION_API_NAME
+from .const import AUTOMATION_API_ID, AUTOMATION_API_NAME, DOMAIN
 
 MAX_SEARCH_RESULTS = 50
 
@@ -114,6 +113,7 @@ class FindEntitiesTool(llm.Tool):
     """Search exposed entities and return their IDs."""
 
     name = "find_entities"
+    integration = DOMAIN
     description = (
         "Search the entities exposed to the assistant. Returns entity IDs, "
         "names, areas and current states. Call without arguments to list all."
@@ -135,7 +135,7 @@ class FindEntitiesTool(llm.Tool):
         hass: HomeAssistant,
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext,
-    ) -> JsonObjectType:
+    ) -> llm.ToolResult:
         """Return matching entities."""
         args = self.parameters(tool_input.tool_args)
         query = args.get("query", "").strip().lower()
@@ -176,18 +176,23 @@ class FindEntitiesTool(llm.Tool):
 
         results.sort(key=lambda item: item["entity_id"])
         if not results:
-            return {"success": False, "error": "No exposed entities matched."}
-        return {
-            "success": True,
-            "entities": results[:MAX_SEARCH_RESULTS],
-            "truncated": len(results) > MAX_SEARCH_RESULTS,
-        }
+            return llm.ToolResult(
+                data={"success": False, "error": "No exposed entities matched."}
+            )
+        return llm.ToolResult(
+            data={
+                "success": True,
+                "entities": results[:MAX_SEARCH_RESULTS],
+                "truncated": len(results) > MAX_SEARCH_RESULTS,
+            }
+        )
 
 
 class CreateAutomationTool(llm.Tool):
     """Create a new automation in automations.yaml."""
 
     name = "create_automation"
+    integration = DOMAIN
     description = (
         "Create a new Home Assistant automation. Only call this after the user "
         "has confirmed what the automation should do."
@@ -210,7 +215,7 @@ class CreateAutomationTool(llm.Tool):
         hass: HomeAssistant,
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext,
-    ) -> JsonObjectType:
+    ) -> llm.ToolResult:
         """Validate, store and load the automation."""
         args = self.parameters(tool_input.tool_args)
         config = _parse_automation(args["yaml"])
@@ -246,7 +251,9 @@ class CreateAutomationTool(llm.Tool):
             title="Automation created",
             notification_id=f"{AUTOMATION_API_ID}_{automation_id}",
         )
-        return {"success": True, "alias": alias, "entity_id": entity_id}
+        return llm.ToolResult(
+            data={"success": True, "alias": alias, "entity_id": entity_id}
+        )
 
 
 def _parse_automation(text: str) -> dict[str, Any]:

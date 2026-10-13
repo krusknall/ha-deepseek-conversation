@@ -32,12 +32,14 @@ from .const import (
     CONF_BASE_URL,
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
+    CONF_REASONING,
     CONF_TEMPERATURE,
     DEFAULT_BASE_URL,
     DEFAULT_MODELS,
     DEFAULT_OPTIONS,
     DOMAIN,
     LOGGER,
+    REASONING_LEVELS,
 )
 
 STEP_USER_SCHEMA = vol.Schema(
@@ -64,6 +66,7 @@ class DeepSeekConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the initial setup."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -141,10 +144,17 @@ class DeepSeekOptionsFlow(OptionsFlow):
                 vol.Optional(CONF_LLM_HASS_API): SelectSelector(
                     SelectSelectorConfig(options=apis, multiple=True)
                 ),
+                vol.Required(CONF_REASONING): SelectSelector(
+                    SelectSelectorConfig(
+                        options=REASONING_LEVELS,
+                        translation_key=CONF_REASONING,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Optional(CONF_PROMPT): TemplateSelector(),
                 vol.Required(CONF_MAX_TOKENS): NumberSelector(
                     NumberSelectorConfig(
-                        min=64, max=8192, step=1, mode=NumberSelectorMode.BOX
+                        min=64, max=65536, step=1, mode=NumberSelectorMode.BOX
                     )
                 ),
                 vol.Required(CONF_TEMPERATURE): NumberSelector(

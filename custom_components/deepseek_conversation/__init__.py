@@ -15,7 +15,16 @@ from homeassistant.loader import async_get_integration
 
 from .automation_api import async_register_automation_api
 from .client import DeepSeekAuthError, DeepSeekClient, DeepSeekError
-from .const import CONF_BASE_URL, DEFAULT_BASE_URL, DOMAIN
+from .const import (
+    CONF_BASE_URL,
+    CONF_CHAT_MODEL,
+    CONF_REASONING,
+    DEFAULT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_REASONING,
+    DOMAIN,
+    LEGACY_MODELS,
+)
 from .history import async_setup_history
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -68,6 +77,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeepSeekConfigEntry) -> 
     entry.runtime_data = client
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: DeepSeekConfigEntry) -> bool:
+    """Move entries to DeepSeek V4 and the reasoning option."""
+    if entry.version > 1:
+        return False
+    if entry.minor_version < 2:
+        # deepseek-chat and deepseek-reasoner were discontinued; both were
+        # Flash with thinking off and on.
+        options = {**entry.options}
+        if (reasoning := LEGACY_MODELS.get(options.get(CONF_CHAT_MODEL))) is not None:
+            options[CONF_CHAT_MODEL] = DEFAULT_CHAT_MODEL
+            options[CONF_REASONING] = reasoning
+        options.setdefault(CONF_REASONING, DEFAULT_REASONING)
+        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
     return True
 
 

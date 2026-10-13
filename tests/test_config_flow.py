@@ -7,6 +7,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.deepseek_conversation.client import DeepSeekAuthError
@@ -15,8 +16,10 @@ from custom_components.deepseek_conversation.const import (
     CONF_BASE_URL,
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
+    CONF_REASONING,
     CONF_TEMPERATURE,
     DEFAULT_BASE_URL,
+    DEFAULT_OPTIONS,
     DOMAIN,
 )
 
@@ -41,7 +44,8 @@ async def test_user_flow(hass: HomeAssistant, mock_models: Any) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == USER_INPUT
-    assert result["options"][CONF_CHAT_MODEL] == "deepseek-chat"
+    assert result["options"][CONF_CHAT_MODEL] == "deepseek-flash"
+    assert result["options"][CONF_REASONING] == "off"
 
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:
@@ -83,7 +87,8 @@ async def test_options_flow(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            CONF_CHAT_MODEL: "deepseek-chat",
+            CONF_CHAT_MODEL: "deepseek-flash",
+            CONF_REASONING: "high",
             CONF_LLM_HASS_API: ["assist", AUTOMATION_API_ID],
             CONF_MAX_TOKENS: 2048,
             CONF_TEMPERATURE: 0.3,
@@ -94,3 +99,39 @@ async def test_options_flow(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_LLM_HASS_API] == ["assist", AUTOMATION_API_ID]
     assert entry.options[CONF_MAX_TOKENS] == 2048
+    assert entry.options[CONF_REASONING] == "high"
+
+
+@pytest.mark.parametrize(
+    ("model", "expected_model", "expected_reasoning"),
+    [
+        ("deepseek-chat", "deepseek-flash", "off"),
+        ("deepseek-reasoner", "deepseek-flash", "high"),
+        ("my-proxy-model", "my-proxy-model", "off"),
+    ],
+)
+async def test_migrate_legacy_models(
+    hass: HomeAssistant,
+    mock_models: Any,
+    model: str,
+    expected_model: str,
+    expected_reasoning: str,
+) -> None:
+    """Entries on the discontinued models move to DeepSeek V4 Flash."""
+    options = {**DEFAULT_OPTIONS, CONF_CHAT_MODEL: model}
+    del options[CONF_REASONING]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_KEY: "test-key", CONF_BASE_URL: DEFAULT_BASE_URL},
+        options=options,
+        version=1,
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 2
+    assert entry.options[CONF_CHAT_MODEL] == expected_model
+    assert entry.options[CONF_REASONING] == expected_reasoning

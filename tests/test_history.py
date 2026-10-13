@@ -118,7 +118,12 @@ async def test_resume_after_session_expired(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """Earlier turns are sent again after Home Assistant forgot the chat."""
-    mock_stream.responses.append(text_response("Your name is Simon."))
+    mock_stream.responses.append(
+        [
+            {"choices": [{"delta": {"role": "assistant", "reasoning_content": "Ok."}}]},
+            *text_response("Your name is Simon."),
+        ]
+    )
     await _converse(hass, "My name is Simon")
 
     freezer.tick(CONVERSATION_TIMEOUT + timedelta(minutes=1))
@@ -134,6 +139,7 @@ async def test_resume_after_session_expired(
         ("assistant", "Your name is Simon."),
         ("user", "What is my name?"),
     ]
+    assert messages[2]["reasoning_content"] == "Ok."
 
 
 async def test_delete(

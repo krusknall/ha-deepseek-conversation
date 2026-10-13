@@ -18,15 +18,17 @@ from .client import DeepSeekAuthError, DeepSeekError
 from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
+    CONF_REASONING,
     CONF_TEMPERATURE,
     DEFAULT_CHAT_MODEL,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_REASONING,
     DEFAULT_TEMPERATURE,
     DOMAIN,
     LOGGER,
     MAX_TOOL_ITERATIONS,
 )
-from .history import DATA_HISTORY, tool_result_data
+from .history import DATA_HISTORY
 
 # JSON schema keywords the DeepSeek function-calling API does not accept at
 # the top level of a tool's parameters.
@@ -56,12 +58,9 @@ def _format_tool(
 
 def _convert_chat_log(chat_log: conversation.ChatLog) -> list[dict[str, Any]]:
     """Convert the chat log into DeepSeek chat messages."""
-    last_user_index = max(
-        (i for i, c in enumerate(chat_log.content) if c.role == "user"), default=-1
-    )
     messages: list[dict[str, Any]] = []
 
-    for index, content in enumerate(chat_log.content):
+    for content in chat_log.content:
         if isinstance(content, conversation.SystemContent):
             if content.content:
                 messages.append({"role": "system", "content": content.content})
@@ -84,9 +83,9 @@ def _convert_chat_log(chat_log: conversation.ChatLog) -> list[dict[str, Any]]:
                     }
                     for tool_call in content.tool_calls
                 ]
-            # Reasoning models require their reasoning to be sent back while
-            # they are still working through tool calls for the current turn.
-            if index > last_user_index and content.thinking_content:
+            # With tools in the request, DeepSeek rejects a conversation whose
+            # earlier reasoning is not sent back, for every previous turn.
+            if content.thinking_content:
                 message["reasoning_content"] = content.thinking_content
             messages.append(message)
         elif isinstance(content, conversation.ToolResultContent):
@@ -94,7 +93,7 @@ def _convert_chat_log(chat_log: conversation.ChatLog) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "tool_call_id": content.tool_call_id,
-                    "content": json_dumps(tool_result_data(content)),
+                    "content": json_dumps(content.result.data),
                 }
             )
 
@@ -242,6 +241,13 @@ class DeepSeekConversationEntity(
             "max_tokens": int(options.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
             "temperature": options.get(CONF_TEMPERATURE, DEFAULT_TEMPERATURE),
         }
+        # Thinking mode is on by default at the API; off keeps voice replies fast.
+        reasoning = options.get(CONF_REASONING, DEFAULT_REASONING)
+        if reasoning == "off":
+            payload["thinking"] = {"type": "disabled"}
+        else:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = reasoning
         if chat_log.llm_api:
             payload["tools"] = [
                 _format_tool(tool, chat_log.llm_api.custom_serializer)

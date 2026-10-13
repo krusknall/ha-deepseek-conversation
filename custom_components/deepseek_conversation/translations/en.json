@@ -27,17 +27,30 @@
       "init": {
         "data": {
           "chat_model": "Model",
+          "reasoning": "Reasoning",
           "llm_hass_api": "Control Home Assistant",
           "prompt": "Instructions",
           "max_tokens": "Maximum tokens per response",
           "temperature": "Temperature"
         },
         "data_description": {
-          "chat_model": "deepseek-chat is fastest and handles device control best.",
+          "chat_model": "deepseek-flash is fast and handles device control well; deepseek-v4-pro is stronger and slower.",
           "llm_hass_api": "Assist controls exposed devices. Automation builder lets the assistant create automations.",
           "prompt": "Instructions for how the assistant should respond. Supports templates.",
-          "temperature": "Lower values give more predictable answers."
+          "temperature": "Lower values give more predictable answers. Ignored while reasoning is on.",
+          "reasoning": "Lets the model think before answering. Off is fastest and best for voice. Reasoning counts toward the maximum tokens.",
+          "max_tokens": "Raise this if answers are cut off, especially with reasoning on."
         }
+      }
+    }
+  },
+  "selector": {
+    "reasoning": {
+      "options": {
+        "off": "Off",
+        "low": "Low",
+        "high": "High",
+        "max": "Max"
       }
     }
   }
